@@ -411,7 +411,10 @@ public:
     virtual void emulateSingleOp() = 0;
 
     using CallReturn = U32(*)(CPU* cpu);
-    RegPtr callAndReturn(CallReturn address, RegPtr resultReg = nullptr);    
+    RegPtr callAndReturn(CallReturn address, RegPtr resultReg = nullptr);
+    // Called on the result register of a host function returning U32. Hosts
+    // whose ABI does not zero extend 32-bit return values (RISC-V) normalize it.
+    virtual void fixupU32CallResult(RegPtr reg) {}
 
     using CallReturnOp = DecodedOp*(*)(CPU* cpu);
     RegPtr callAndReturnOp(CallReturnOp address, RegPtr resultReg = nullptr);

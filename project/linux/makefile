@@ -1,8 +1,11 @@
 ifndef BUILD_DIR
 
-.PHONY: default all clean release test native-runtime native-ui test-ui deb
+.PHONY: default all clean release test test-riscv64 native-runtime native-ui test-ui deb
 
 default all: release
+
+# RISC-V 64 JIT (experimental, see docs/RISCV64-JIT-Plan.md). Requires RV64GC + Zba + Zbb.
+RISCV64_FLAGS := -DASMJIT_STATIC -DASMJIT_NO_AARCH64 -DBOXEDWINE_64 -DBOXEDWINE_JIT -DBOXEDWINE_JIT_RISCV64 -DBOXEDWINE_MULTI_THREADED -march=rv64gc_zba_zbb
 
 uname_m := $(shell uname -m)
 uname_n := $(shell uname -n)
@@ -17,6 +20,8 @@ else ifeq ($(uname_m), i686)
 BOXED_FLAGS := -DASMJIT_NO_AARCH64 -DASMJIT_STATIC -DBOXEDWINE_JIT_X86 -DBOXEDWINE_JIT -DBOXEDWINE_MULTI_THREADED
 else ifeq ($(uname_m), x86_64)
 BOXED_FLAGS := -DASMJIT_NO_AARCH64 -DASMJIT_STATIC -DBOXEDWINE_64 -DBOXEDWINE_JIT -DBOXEDWINE_JIT_X64 -DBOXEDWINE_MULTI_THREADED -DBOXEDWINE_MEM_CACHE -DBOXEDWINE_HOST_EXCEPTIONS
+else ifeq ($(uname_m), riscv64)
+BOXED_FLAGS := $(RISCV64_FLAGS)
 endif
 
 BOXED_FLAGS += -DBOXEDWINE_VULKAN
@@ -25,6 +30,12 @@ release: export BUILD_DIR := Build/Release
 release: export EXTRA_CPP_FLAGS := $(BOXED_FLAGS)
 test:   export BUILD_DIR := Build/Test
 test: export EXTRA_CPP_FLAGS := $(BOXED_FLAGS) -D__TEST
+
+# Cross build of the unit tests for a riscv64 host, run with qemu-riscv64.
+# Needs g++-riscv64-linux-gnu and riscv64 multiarch SDL2/GL/zlib/ssl/curl.
+test-riscv64: export BUILD_DIR := Build/TestRiscv64
+test-riscv64: export EXTRA_CPP_FLAGS := $(RISCV64_FLAGS) -DBOXEDWINE_VULKAN -D__TEST
+test-riscv64: export CROSS := riscv64-linux-gnu-
 
 # Separate emulator for the libadwaita launcher. Keep the legacy targets intact.
 native-runtime: export BUILD_DIR := Build/Native
@@ -53,7 +64,7 @@ cpus := $(shell echo $$(($(cpus)-1)))
 export MAKEFLAGS := -j $(cpus)
 $(info MAKEFLAGS is $(MAKEFLAGS))
 endif
-release test:
+release test test-riscv64:
 	@$(MAKE) $(if $(JOBS),-j$(JOBS))
 
 clean:
@@ -108,7 +119,7 @@ TEST_SOURCES += $(PROJDIR)/lib/zlib/contrib/minizip/mztools.c
 TEST_SOURCES += $(PROJDIR)/lib/zlib/contrib/minizip/unzip.c
 TEST_SOURCES += $(PROJDIR)/lib/zlib/contrib/minizip/zip.c
 
-ifeq ($(BUILD_DIR), Build/Test)
+ifneq ($(filter Build/Test%,$(BUILD_DIR)),)
 SRCS := $(TEST_SOURCES)
 else
 SRCS := $(SOURCES)
@@ -123,11 +134,21 @@ DEPS := $(ALL:.o=.d)
 $(OBJS): INCLUDES := -I../../lib/asmjit -I../../include -I../../lib/glew/include -I../../lib/imgui -I../../lib/simde -I../../lib/pugixml/src -I../../lib/zlib -I../../lib/zlib/contrib/minizip
 $(SOFT_OBJS): INCLUDES := -I../../lib/softfloat/source/include -I../../lib/softfloat/source -I../../lib/softfloat/source/8086-SSE
 
+ifdef CROSS
+CC := $(CROSS)gcc
+CXX := $(CROSS)g++
+CROSS_LIBDIR := /usr/lib/$(patsubst %-,%,$(CROSS))
+SDL_CFLAGS = -idirafter /usr/include/$(patsubst %-,%,$(CROSS)) -idirafter /usr/include -I/usr/include/SDL2 -D_REENTRANT
+SDL_LIBS = -L$(CROSS_LIBDIR) -Wl,-rpath-link,$(CROSS_LIBDIR) -lSDL2
+CURL_LIB = -l:libcurl.so.4
+else
 SDL_CFLAGS = $(shell sdl2-config --cflags)
 SDL_LIBS = $(shell sdl2-config --libs)
+CURL_LIB = -lcurl
+endif
 CPPFLAGS ?= -std=c++20 -O2 $(EXTRA_CPP_FLAGS) $(GCC_EXTRA_FLAGS) -Werror=switch -Wall -Wno-invalid-offsetof -Wno-delete-incomplete -Wno-unused-result -Wno-unknown-pragmas -Wno-unused-local-typedefs -Wno-unused-variable -Wno-unused-function -Wno-unused-but-set-variable $(INCLUDES) -DBOXEDWINE_RECORDER -DBOXEDWINE_ZLIB -DBOXEDWINE_HAS_SETJMP -DSDL2=1 "-DGLH=<SDL_opengl.h>" -DBOXEDWINE_OPENGL_SDL -DSIMDE_SSE2_NO_NATIVE -DBOXEDWINE_POSIX -DBOXEDWINE_OPENGL_IMGUI_V2 $(SDL_CFLAGS)
-CFLAGS ?= -O2 $(INCLUDES)
-LDFLAGS = -L./linux_build/lib -lcurl -lssl -lcrypto -lpthread -lm -lz -lGL -lstdc++ -lstdc++fs $(SDL_LIBS)
+CFLAGS ?= -O2 $(INCLUDES) $(if $(CROSS),$(SDL_CFLAGS))
+LDFLAGS = -L./linux_build/lib $(SDL_LIBS) $(CURL_LIB) -lssl -lcrypto -lpthread -lm -lz -lGL -lstdc++ -lstdc++fs $(SDL_LIBS)
 
 #$(TEST_BUILD_DIR)/boxedwineTest: $(TEST_OBJS)
 #	$(CC) $(TEST_OBJS) -o $@ $(LDFLAGS)

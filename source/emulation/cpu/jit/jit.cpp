@@ -188,6 +188,7 @@ RegPtr Jit::callAndReturn(CallReturn address, RegPtr resultReg) {
         resultReg = getTmpRegForCallResult();
     }
     callHostFunctionWithResult(resultReg, (void*)address, params);
+    fixupU32CallResult(resultReg);
     return resultReg;
 }
 

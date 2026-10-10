@@ -273,6 +273,10 @@ public:
     LazyFlagType lazyFlagType = FLAGS_NONE;
     LazyFlagType lazyFlagTypePrev = FLAGS_NONE;
     U32         oldCF = 0;
+#if defined(BOXEDWINE_JIT_RISCV64)
+    U64 storedRegs[13]; // ra, s0-s11 of the host code that entered the JIT
+    U64 riscvTmpSpill[32]; // caller-saved JIT temps around host calls, indexed by host register
+#endif
 #if defined(BOXEDWINE_JIT_ARMV8)
     U64 storedRegs[12];
     U64 armSavedFpuRegs[8]; // Host ABI: low 64 bits of D8-D15.
