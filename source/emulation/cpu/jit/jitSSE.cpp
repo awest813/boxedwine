@@ -27,9 +27,15 @@ static constexpr U32 MXCSR_DIV_EXCEPTION_MASKS = MXCSR_INVALID_OPERATION_MASK | 
 
 void JitSSE::guardSseDiv() {
     RegPtr exceptionsUnmasked = readCPU(JitWidth::b32, offsetof(CPU, sseDivExceptionsUnmasked));
+    // The interpreter already performed the divide. A backend whose
+    // emulateSingleOp returns (WASM) must not fall through into the native
+    // divide again, so leave the block; for the others this is unreachable.
+    auto savedCache = fpuStackCache;
     If(JitWidth::b32, exceptionsUnmasked); {
         emulateSingleOp();
+        blockExit();
     } EndIf();
+    fpuStackCache = savedCache;
 }
 
 void JitSSE::updateSseDivExceptionState() {

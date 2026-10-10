@@ -1560,6 +1560,39 @@ void runSseDivFastPathDecision() {
         failed("FXRSTOR did not update SSE divide exception state");
     }
     cpu->setMxcsr(DEFAULT_MXCSR);
+
+    // With divide exceptions unmasked a JIT takes the interpreter slow path.
+    // A non-faulting divide must still execute exactly once.
+    for (bool scalar : {false, true}) {
+        newInstruction(0);
+        cpu->big = true;
+        cpu->setMxcsr(DEFAULT_MXCSR & ~MXCSR_DIVIDE_BY_ZERO_MASK);
+        for (U32 i = 0; i < 4; i++) {
+            cpu->xmm[0].ps.f32[i] = 8.0f;
+            cpu->xmm[1].ps.f32[i] = 2.0f;
+        }
+        if (scalar) {
+            pushCode8(0xf3); // divss xmm0,xmm1
+        }
+        pushCode8(0x0f); // divps xmm0,xmm1
+        pushCode8(0x5e);
+        pushCode8(0xc1);
+        pushCode8(0xb8); // mov eax,0x12345678
+        pushCode32(0x12345678);
+        runTestCPU();
+        const char* name = scalar ? "unmasked SSE divss" : "unmasked SSE divps";
+        for (U32 i = 0; i < 4; i++) {
+            float expected = (scalar && i) ? 8.0f : 4.0f;
+            if (cpu->xmm[0].ps.f32[i] != expected) {
+                failed("%s lane %u expected %f got %f", name, i, expected, cpu->xmm[0].ps.f32[i]);
+                break;
+            }
+        }
+        if (cpu->reg[0].u32 != 0x12345678) {
+            failed("%s did not continue to the next instruction", name);
+        }
+        cpu->setMxcsr(DEFAULT_MXCSR);
+    }
 }
 
 void runX87DivFastPathDecision() {
@@ -1625,6 +1658,40 @@ void runX87DivFastPathDecision() {
     if (!fpu_div_control_or_tag_requires_slow_path(&fpu, 0, 1, false)) {
         failed("x87 empty divide operand tag marked fast");
     }
+
+    // With divide exceptions unmasked a JIT takes the interpreter slow path.
+    // A non-faulting FDIVP must still execute exactly once.
+    constexpr U32 DATA = TEST_HEAP_ADDRESS + MEM_BASE;
+    newInstruction(0);
+    cpu->big = true;
+    cpu->fpu.FINIT();
+    memory->writed(DATA, 8);
+    memory->writed(DATA + 4, 2);
+    memory->writed(DATA + 8, 0);
+    memory->writew(DATA + 12, 0x37b); // default control word with ZE unmasked
+    static const U8 code[] = {
+        0xd9, 0x2d, 0, 0, 0, 0, // fldcw [ds:MEM_BASE + 12]
+        0xdb, 0x05, 0, 0, 0, 0, // fild dword [ds:MEM_BASE]
+        0xdb, 0x05, 0, 0, 0, 0, // fild dword [ds:MEM_BASE + 4]
+        0xde, 0xf9,             // fdivp st(1),st(0)
+        0xdb, 0x1d, 0, 0, 0, 0, // fistp dword [ds:MEM_BASE + 8]
+    };
+    const U32 offsets[] = { 12, 0, 4, 8 };
+    const U32 patch[] = { 2, 8, 14, 22 };
+    U8 bytes[sizeof(code)];
+    memcpy(bytes, code, sizeof(code));
+    for (U32 i = 0; i < 4; i++) {
+        U32 address = MEM_BASE + offsets[i]; // DS base is TEST_HEAP_ADDRESS
+        memcpy(bytes + patch[i], &address, 4);
+    }
+    for (U8 b : bytes) {
+        pushCode8(b);
+    }
+    runTestCPU();
+    if (memory->readd(DATA + 8) != 4) {
+        failed("unmasked x87 fdivp expected 4 got %d", (S32)memory->readd(DATA + 8));
+    }
+    cpu->fpu.FINIT();
 }
 
 void runX87ExceptionSummaryState() {
