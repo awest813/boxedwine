@@ -328,9 +328,11 @@ void verifyDirectSetFusion() {
     if (producer->pfn != cpu->thread->process->startJITOp || !producer->pfnJitCode) {
         failed("direct set fusion producer compiled entry");
     }
+#ifndef BOXEDWINE_JIT_RISCV64 // direct flag fusion is not implemented yet (docs/RISCV64-JIT-Plan.md, phase 3)
     if (!(set->flags2 & OP_FLAG2_JUMP_TARGET_ASSUMED_FALSE) || set->pfnJitCode) {
         failed("direct set fusion skipped op");
     }
+#endif
 #endif
 }
 

@@ -181,6 +181,19 @@ void Jit::call_RI(CallRI address, JitWidth width, RegPtr reg, U32 value) {
     callHostFunction((void*)address, params);
 }
 
+void Jit::writeCurrentEip(U32 addAmount) {
+    if (cpu->thread->process->hasSetSeg[CS]) {
+        // The CS base can change after this block was compiled, for example
+        // signal delivery loads the flat code selector, so use the live base.
+        RegPtr eip = getTmpReg();
+        movValue(JitWidth::b32, eip, currentEip + addAmount);
+        subReg(JitWidth::b32, eip, getReadOnlySegAddress(CS));
+        writeEip(eip);
+    } else {
+        writeEip(currentEip - cpu->seg[CS].address + addAmount);
+    }
+}
+
 RegPtr Jit::callAndReturn(CallReturn address, RegPtr resultReg) {
     std::vector<DynParam> params;
     params.push_back(DynParam(JitCallParamType::CPU));

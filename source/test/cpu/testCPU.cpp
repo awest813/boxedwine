@@ -31,6 +31,9 @@
 #if defined(BOXEDWINE_JIT_X86) || defined(BOXEDWINE_JIT_X64)
 #include "../../emulation/cpu/x32/jitX86CodeGen.h"
 #endif
+#if defined(BOXEDWINE_JIT_RISCV64)
+#include "../../emulation/cpu/riscv64/jitRiscv64CodeGen.h"
+#endif
 #if defined(BOXEDWINE_WASM_JIT) && !defined(BOXEDWINE_MULTI_THREADED)
 #include "../../emulation/cpu/wasm/jitWasmCodeGen.h"
 #endif
